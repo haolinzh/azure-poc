@@ -12,7 +12,7 @@ az aks create \
   --resource-group "$RESOURCE_GROUP" \
   --name "$AKS_NAME" \
   --node-count 1 \
-  --node-vm-size Standard_B2s \
+  --node-vm-size Standard_B2s_v2 \
   --enable-managed-identity \
   --generate-ssh-keys
 az aks update --resource-group "$RESOURCE_GROUP" --name "$AKS_NAME" --attach-acr "$ACR_NAME"
