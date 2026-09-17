@@ -72,6 +72,40 @@ spring.datasource.azure.passwordless-enabled=true
 
 JdbcTemplate 的 DAO 代码无需改动。
 
+### 一次性初始化（setup SQL）
+
+托管 PG 首次上线时，登录进数据库跑一次（管理员账号连默认 `postgres` 库），把「库 + 角色 + 表 + 权限」一次建好。其余组件没有这种数据面操作，只有 PG 需要。
+
+```sql
+-- 1) 建应用要用的库
+CREATE DATABASE <db-name>;
+
+-- 2) 建角色并绑定到托管标识 UAMI（免密登录的核心；第二个参数是 UAMI 的 object-id，不是 client-id）
+SELECT * FROM pgaadauth_create_principal_with_oid('<db-role>', '<uami-object-id>', 'service', false, false);
+
+-- 3) 允许该角色连库
+GRANT CONNECT ON DATABASE <db-name> TO "<db-role>";
+
+-- 4) 切到目标库，下面都在库里做
+\c <db-name>
+
+-- 5) 建表（IF NOT EXISTS 防止重复跑报错）
+CREATE TABLE IF NOT EXISTS messages (
+  id BIGSERIAL PRIMARY KEY,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 6) 授权
+GRANT USAGE ON SCHEMA public TO "<db-role>";
+GRANT SELECT, INSERT, UPDATE, DELETE ON messages TO "<db-role>";
+GRANT USAGE, SELECT ON SEQUENCE messages_id_seq TO "<db-role>";
+```
+
+> 参考值：`<db-name>` = `demo`，`<db-role>` = `hello-app-mi`，`<uami-object-id>` = `fd30a409-df43-426c-8593-58e4cbae0eec`。
+>
+> 入口：`\c` 是 psql 专有命令。用集群内 `psql`（PG 无公网端点）整段一次跑；若用门户「查询编辑器」或 JDBC 客户端（不认 `\c`），拆两次连接——先连 `postgres` 跑 1–3 句，再连 `<db-name>` 跑 5–6 句。
+
 ---
 
 ## 2. Redis（Azure Managed Redis）
