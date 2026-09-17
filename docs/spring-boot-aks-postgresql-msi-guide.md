@@ -31,10 +31,10 @@ spring.cloud.azure.credential.client-id=<uami-client-id>
 
 UAMI 有**两个 ID**，全文反复用到、最容易混淆，先集中讲清：
 
-| 标识 | 占位符 | 用在哪 |
-|---|---|---|
-| **client-id**（客户端 ID / 应用 ID） | `<uami-client-id>` | 上面的全局凭据；App Insights 的 `ClientId=`（第 6 节）；OpenAI 的 `DefaultAzureCredential`（第 7 节） |
-| **object-id**（对象 ID / 主体 ID / principalId） | `<uami-object-id>` | Redis 的 username（第 2 节）；PG 建角色（第 1 节）；RBAC 授权 `--assignee` |
+| 标识 | 占位符 | 用在哪 | 参考值 |
+|---|---|---|---|
+| **client-id**（客户端 ID / 应用 ID） | `<uami-client-id>` | 上面的全局凭据；App Insights 的 `ClientId=`（第 6 节）；OpenAI 的 `DefaultAzureCredential`（第 7 节） | `7c7dbd38-b3a0-49c6-a55a-27a6237645cf` |
+| **object-id**（对象 ID / 主体 ID / principalId） | `<uami-object-id>` | Redis 的 username（第 2 节）；PG 建角色（第 1 节）；RBAC 授权 `--assignee` | `fd30a409-df43-426c-8593-58e4cbae0eec` |
 
 两者在同一处获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **客户端 ID** / **对象(主体) ID**；或
 `az identity show -g <rg> -n hello-app-mi --query clientId -o tsv` / `--query principalId -o tsv`。
@@ -61,10 +61,13 @@ spring.datasource.azure.passwordless-enabled=true
 ```
 
 - `<pg-hostname>`：PostgreSQL Flexible Server 的主机名（FQDN）。
+  - 参考值：`pg-hello-poc.postgres.database.azure.com`
   - 获取：Azure 门户 → PostgreSQL 服务器 → 概览 → **服务器名称**；或 `az postgres flexible-server show -g <rg> -n pg-hello-poc --query fullyQualifiedDomainName -o tsv`。
 - `<db-name>`：要连接的数据库名。
+  - 参考值：`demo`
   - 获取：该 PG 服务器里已创建的数据库名（如 `demo`）；门户 → 服务器 → **数据库** 边栏；或 psql 执行 `\l` 查看。
 - `<db-role>`：映射到 UAMI 的数据库角色名。
+  - 参考值：`hello-app-mi`
   - 获取：setup SQL 里 `pgaadauth_create_principal_with_oid('<db-role>', '<uami-object-id>', 'service', ...)` 的第一个参数（自己起的名字，如 `hello-app-mi`）。
 
 JdbcTemplate 的 DAO 代码无需改动。
@@ -97,8 +100,10 @@ spring.data.redis.azure.passwordless-enabled=true
 ```
 
 - `<redis-hostname>`：Azure Managed Redis 的主机名（形如 `<name>.<region>.redis.azure.net`）。
+  - 参考值：`redis-hello-poc.eastasia.redis.azure.net`
   - 获取：Azure 门户 → Azure Managed Redis → 概览 → **主机名**；或 `az redisenterprise show -g <rg> -n redis-hello-poc --query hostName -o tsv`。
 - `<uami-object-id>`：UAMI 的 **object-id**（见第 0 节，注意不是 client-id）。
+  - 参考值：`fd30a409-df43-426c-8593-58e4cbae0eec`
 - 端口固定 `10000`（Azure Managed Redis；老的 Azure Cache for Redis 才是 `6380`）。
 
 代码注入 `StringRedisTemplate` 即可。
@@ -124,8 +129,10 @@ spring.cloud.azure.eventhubs.event-hub-name=<hub-name>
 ```
 
 - `<namespace>`：Event Hubs 命名空间名。
+  - 参考值：`eh-hello-poc`
   - 获取：Azure 门户 → Event Hubs 命名空间 → 概览 → **名称**；或 `az eventhubs namespace show -g <rg> -n eh-hello-poc --query name -o tsv`。
 - `<hub-name>`：命名空间里的事件中心名。
+  - 参考值：`hello-hub`
   - 获取：Azure 门户 → 命名空间 → **实体 → 事件中心** 列表里的名字（如 `hello-hub`）。
 
 ### 发送代码
@@ -159,6 +166,7 @@ spring.cloud.azure.storage.blob.endpoint=https://<account-name>.blob.core.window
 ```
 
 - `<account-name>`：存储账户名。
+  - 参考值：`sthellopoc`
   - 获取：Azure 门户 → 存储账户 → 概览 → **名称**；或 `az storage account show -g <rg> -n sthellopoc --query name -o tsv`。
 
 ### 代码
@@ -171,9 +179,12 @@ blob.upload(BinaryData.fromString("<content>"), true);   // 上传（覆盖）
 blobService.getBlobContainerClient("<container>").listBlobs();  // 列举
 ```
 
-- `<container>`：Blob 容器名（如 `demo`）。
+- `<container>`：Blob 容器名。
+  - 参考值：`demo`
 - `<blob-name>`：Blob 文件名。
+  - 参考值：`hello.txt`（示例）
 - `<content>`：要写入的字符串内容。
+  - 参考值：`hello-from-msi`（示例）
 
 > 前提：UAMI 在存储账户上被授予「Storage Blob Data Contributor」角色。
 
@@ -197,6 +208,7 @@ spring.cloud.azure.keyvault.secret.endpoint=https://<kv-name>.vault.azure.net/
 ```
 
 - `<kv-name>`：Key Vault 名称。
+  - 参考值：`kv-hello-poc`
   - 获取：Azure 门户 → Key Vault → 概览 → **Vault URI**（去掉 `https://` 前缀和末尾 `/`）；或 `az keyvault show -g <rg> -n kv-hello-poc --query properties.vaultUri -o tsv`。
 
 ### 代码
@@ -208,6 +220,7 @@ String value = secretClient.getSecret("<secret-name>").getValue();
 ```
 
 - `<secret-name>`：Key Vault 里已创建的密钥名。
+  - 参考值：`demo-secret`
 
 > 前提：UAMI 在 Key Vault 上被授予「Key Vault Secrets User」（只读）或「Key Vault Secrets Officer」（读写）角色。
 
@@ -243,8 +256,10 @@ env:
 ```
 
 - `<instrumentation-key>` / `<ingestion-endpoint>` / `<live-endpoint>` / `<app-id>`：整条**连接字符串**。
+  - 参考值：`InstrumentationKey=9c15e26f-6fa1-46ed-ac0d-9d7193db0568;IngestionEndpoint=https://eastasia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://eastasia.livediagnostics.monitor.azure.com/;ApplicationId=5a856b76-143c-4b72-8bfd-8a6b590a3f72`
   - 获取：Azure 门户 → Application Insights 资源 → 概览 → **连接字符串**（直接整段复制，`;` 分隔的四个字段就是这些占位符）。
 - `<uami-client-id>`：UAMI 的 **client-id**（见第 0 节）。
+  - 参考值：`7c7dbd38-b3a0-49c6-a55a-27a6237645cf`
 
 > 前提：UAMI 在 App Insights 资源上被授予「Monitoring Metrics Publisher」角色；LAW 数据平面授权由该 workspace-based 关联自动处理。
 
@@ -272,8 +287,10 @@ spring.cloud.azure.openai.deployment-name=<deployment-name>
 ```
 
 - `<resource-name>`：Azure OpenAI 资源名（endpoint 的 FQDN 是 `<resource-name>.openai.azure.com`）。
+  - 参考值：`openai-hello-poc`
   - 获取：Azure 门户 → Azure OpenAI 资源 → 概览 → **终结点**（去掉 `https://` 前缀）；或 `az cognitiveservices account show -g <rg> -n openai-hello-poc --query properties.endpoint -o tsv`。
 - `<deployment-name>`：资源里已部署的**模型部署名**（不是模型名本身，是你部署时起的名字）。
+  - 参考值：`gpt-4-1-mini`
   - 获取：Azure 门户 → Azure OpenAI 资源 → **模型部署** 边栏 → 部署名称；或 `az cognitiveservices account deployment list -g <rg> -n openai-hello-poc --query '[].name' -o tsv`。
 
 ### 代码
@@ -311,6 +328,7 @@ String reply = r.getChoices().get(0).getMessage().getContent();
 
 前置：应用已部署到 AKS 且通过 LoadBalancer 暴露；`<public-ip>` = Service 的 EXTERNAL-IP。
 获取：`kubectl get svc hello-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}'`。
+参考值：`20.255.113.118`
 
 | 组件 | 验证命令 | 预期 |
 |---|---|---|
@@ -325,7 +343,7 @@ String reply = r.getChoices().get(0).getMessage().getContent();
 | Key Vault 读取 | `curl <public-ip>/keyvault/secret/<secret-name>` | `{"name":"...","value":"..."}` |
 | Azure OpenAI | `curl -X POST <public-ip>/chat -H 'Content-Type: application/json' -d '{"prompt":"hi"}'` | 需模型已部署，返回 `{"reply":"..."}` |
 
-`<secret-name>`：第 5 节里已创建的 secret 名。
+`<secret-name>`：第 5 节里已创建的 secret 名（参考值 `demo-secret`）。
 
 App Insights / LAW 不是 HTTP 端点，验证方式：触发上表任意请求后，查询 LAW 的 `AppRequests` 表能看到对应记录：
 
@@ -335,6 +353,7 @@ az monitor log-analytics query -w <law-workspace-id> \
 ```
 
 - `<law-workspace-id>`：LAW 的 **Workspace ID（Customer ID）**。
+  - 参考值：`1a7d2f82-bdde-4703-a2fb-02cc8a49ec0c`
   - 获取：Azure 门户 → Log Analytics 工作区 → 概览 → **工作区 ID**；或 `az monitor log-analytics workspace list --query '[].customerId' -o tsv`。
 
 ### 最近一次验证结果（2026-09-17）
