@@ -1,8 +1,10 @@
-# Spring 项目接入 MSI PostgreSQL 改动记录
+# Spring 项目接入 MSI 托管服务改动记录
 
-> 本次改动目的：让本地 Spring 项目部署到 AKS 后，通过 Managed Identity 免密连接托管 PostgreSQL（PGSQL）。
+> 目的：本地 Spring 项目部署到 AKS 后，通过 Managed Identity（Workload Identity + UAMI）免密连接托管 PostgreSQL / Redis / Event Hubs。密码、连接串、key 都不需要。
 
-## 1. `pom.xml`
+## 0. 公共依赖与凭据
+
+### `pom.xml` — BOM
 
 ```xml
 <dependencyManagement>
@@ -16,28 +18,114 @@
         </dependency>
     </dependencies>
 </dependencyManagement>
-
-<dependencies>
-    <dependency>
-        <groupId>com.azure.spring</groupId>
-        <artifactId>spring-cloud-azure-starter-jdbc-postgresql</artifactId>
-    </dependency>
-</dependencies>
 ```
 
-## 2. `application.properties`
+### `application.properties` — 全局 MSI 凭据（三个服务共用）
+
+```properties
+spring.cloud.azure.credential.managed-identity-enabled=true
+spring.cloud.azure.credential.client-id=<uami-client-id>
+```
+
+- `<uami-client-id>`：UAMI 的 **client-id（应用/客户端 ID）**。
+  - 获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **客户端 ID**；或 `az identity show -g <rg> -n hello-app-mi --query clientId -o tsv`。
+
+---
+
+## 1. PostgreSQL
+
+### 依赖
+
+```xml
+<dependency>
+    <groupId>com.azure.spring</groupId>
+    <artifactId>spring-cloud-azure-starter-jdbc-postgresql</artifactId>
+</dependency>
+```
+
+### 配置
 
 ```properties
 spring.datasource.url=jdbc:postgresql://<pg-hostname>:5432/<db-name>?sslmode=require
 spring.datasource.username=<db-role>
 spring.datasource.azure.passwordless-enabled=true
-spring.cloud.azure.credential.managed-identity-enabled=true
-spring.cloud.azure.credential.client-id=<uami-client-id>
 ```
 
-- `<pg-hostname>`：PostgreSQL 服务器主机名
-- `<db-name>`：数据库名
-- `<db-role>`：映射到 UAMI 的 DB 角色名
-- `<uami-client-id>`：用户分配托管标识的 client-id
+- `<pg-hostname>`：PostgreSQL Flexible Server 的主机名（FQDN）。
+  - 获取：Azure 门户 → PostgreSQL 服务器 → 概览 → **服务器名称**；或 `az postgres flexible-server show -g <rg> -n pg-hello-poc --query fullyQualifiedDomainName -o tsv`。
+- `<db-name>`：要连接的数据库名。
+  - 获取：该 PG 服务器里已创建的数据库名（如 `demo`）；门户 → 服务器 → **数据库** 边栏；或 psql 执行 `\l` 查看。
+- `<db-role>`：映射到 UAMI 的数据库角色名。
+  - 获取：setup SQL 里 `pgaadauth_create_principal_with_oid('<db-role>', '<uami-object-id>', 'service', ...)` 的第一个参数（自己起的名字，如 `hello-app-mi`）。
 
 JdbcTemplate 的 DAO 代码无需改动。
+
+---
+
+## 2. Redis（Azure Managed Redis）
+
+### 依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+<dependency>
+    <groupId>com.azure.spring</groupId>
+    <artifactId>spring-cloud-azure-starter-data-redis-lettuce</artifactId>
+</dependency>
+```
+
+### 配置
+
+```properties
+spring.data.redis.host=<redis-hostname>
+spring.data.redis.port=10000
+spring.data.redis.ssl.enabled=true
+spring.data.redis.username=<uami-object-id>
+spring.data.redis.azure.passwordless-enabled=true
+```
+
+- `<redis-hostname>`：Azure Managed Redis 的主机名（形如 `<name>.<region>.redis.azure.net`）。
+  - 获取：Azure 门户 → Azure Managed Redis → 概览 → **主机名**；或 `az redisenterprise show -g <rg> -n redis-hello-poc --query hostName -o tsv`。
+- `<uami-object-id>`：UAMI 的 **objectId（主体/对象 ID）**，注意**不是** client-id，也不是资源名。
+  - 获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **对象(主体) ID**；或 `az identity show -g <rg> -n hello-app-mi --query principalId -o tsv`。
+- 端口固定 `10000`（Azure Managed Redis；老的 Azure Cache for Redis 才是 `6380`）。
+
+代码注入 `StringRedisTemplate` 即可。
+
+---
+
+## 3. Event Hubs
+
+### 依赖
+
+```xml
+<dependency>
+    <groupId>com.azure.spring</groupId>
+    <artifactId>spring-cloud-azure-starter-integration-eventhubs</artifactId>
+</dependency>
+```
+
+### 配置
+
+```properties
+spring.cloud.azure.eventhubs.namespace=<namespace>
+spring.cloud.azure.eventhubs.event-hub-name=<hub-name>
+```
+
+- `<namespace>`：Event Hubs 命名空间名。
+  - 获取：Azure 门户 → Event Hubs 命名空间 → 概览 → **名称**；或 `az eventhubs namespace show -g <rg> -n eh-hello-poc --query name -o tsv`。
+- `<hub-name>`：命名空间里的事件中心名。
+  - 获取：Azure 门户 → 命名空间 → **实体 → 事件中心** 列表里的名字（如 `hello-hub`）。
+
+### 发送代码
+
+注入 `EventHubsTemplate`（`com.azure.spring.messaging.eventhubs.core.EventHubsTemplate`）：
+
+```java
+template.send("<hub-name>", MessageBuilder.withPayload(payload).build());
+```
+
+> 前提：UAMI 在 Event Hubs 命名空间上被授予「Azure Event Hubs Data Sender」角色。
