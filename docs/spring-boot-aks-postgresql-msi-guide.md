@@ -1,6 +1,8 @@
 # Spring 项目接入 MSI 托管服务改动记录
 
-> 目的：本地 Spring 项目部署到 AKS 后，通过 Managed Identity（Workload Identity + UAMI）免密连接托管 PostgreSQL / Redis / Event Hubs / Storage Blob / Key Vault，并通过 Application Insights（Entra-only）上报遥测。密码、连接串、key 都不需要。
+> 目的：本地 Spring 项目部署到 AKS 后，通过 Managed Identity（Workload Identity + UAMI）免密连接托管 PostgreSQL / Redis / Event Hubs / Storage Blob / Key Vault / Azure OpenAI，并通过 Application Insights（Entra-only）上报遥测。密码、连接串、key 都不需要。
+>
+> Azure OpenAI（第 7 节）受订阅注册地监管限制：中国大陆个人订阅无法部署模型，代码已就绪、需合规订阅才能跑通。
 
 ## 0. 公共依赖与凭据
 
@@ -20,15 +22,22 @@
 </dependencyManagement>
 ```
 
-### `application.properties` — 全局 MSI 凭据（三个服务共用）
+### `application.properties` — 全局 MSI 凭据（所有服务共用）
 
 ```properties
 spring.cloud.azure.credential.managed-identity-enabled=true
 spring.cloud.azure.credential.client-id=<uami-client-id>
 ```
 
-- `<uami-client-id>`：UAMI 的 **client-id（应用/客户端 ID）**。
-  - 获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **客户端 ID**；或 `az identity show -g <rg> -n hello-app-mi --query clientId -o tsv`。
+UAMI 有**两个 ID**，全文反复用到、最容易混淆，先集中讲清：
+
+| 标识 | 占位符 | 用在哪 |
+|---|---|---|
+| **client-id**（客户端 ID / 应用 ID） | `<uami-client-id>` | 上面的全局凭据；App Insights 的 `ClientId=`（第 6 节）；OpenAI 的 `DefaultAzureCredential`（第 7 节） |
+| **object-id**（对象 ID / 主体 ID / principalId） | `<uami-object-id>` | Redis 的 username（第 2 节）；PG 建角色（第 1 节）；RBAC 授权 `--assignee` |
+
+两者在同一处获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **客户端 ID** / **对象(主体) ID**；或
+`az identity show -g <rg> -n hello-app-mi --query clientId -o tsv` / `--query principalId -o tsv`。
 
 ---
 
@@ -89,8 +98,7 @@ spring.data.redis.azure.passwordless-enabled=true
 
 - `<redis-hostname>`：Azure Managed Redis 的主机名（形如 `<name>.<region>.redis.azure.net`）。
   - 获取：Azure 门户 → Azure Managed Redis → 概览 → **主机名**；或 `az redisenterprise show -g <rg> -n redis-hello-poc --query hostName -o tsv`。
-- `<uami-object-id>`：UAMI 的 **objectId（主体/对象 ID）**，注意**不是** client-id，也不是资源名。
-  - 获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **对象(主体) ID**；或 `az identity show -g <rg> -n hello-app-mi --query principalId -o tsv`。
+- `<uami-object-id>`：UAMI 的 **object-id**（见第 0 节，注意不是 client-id）。
 - 端口固定 `10000`（Azure Managed Redis；老的 Azure Cache for Redis 才是 `6380`）。
 
 代码注入 `StringRedisTemplate` 即可。
@@ -210,6 +218,7 @@ String value = secretClient.getSecret("<secret-name>").getValue();
 ### 说明
 
 - App Insights 采用 **workspace-based**（数据落到 LAW），并关闭本地认证（`DisableLocalAuth=true`），即 **Entra-only**：连接串里的 `InstrumentationKey` 只用于标识资源，真正的摄取凭据走 AAD。
+- LAW（Log Analytics Workspace）只是 App Insights 的数据落点，**无需任何 Spring 侧配置**——只要 App Insights 是 workspace-based 并关联到它即可。
 - **关键**：不能用 `spring-cloud-azure-starter-monitor`（OTel distro 不支持 AAD 摄取），必须用 **Application Insights Java agent**（standalone jar）。Agent 自动采集请求/依赖/日志/指标，无需写任何 Java 代码。
 
 ### Dockerfile（下载并挂载 agent）
@@ -235,8 +244,7 @@ env:
 
 - `<instrumentation-key>` / `<ingestion-endpoint>` / `<live-endpoint>` / `<app-id>`：整条**连接字符串**。
   - 获取：Azure 门户 → Application Insights 资源 → 概览 → **连接字符串**（直接整段复制，`;` 分隔的四个字段就是这些占位符）。
-- `<uami-client-id>`：UAMI 的 **client-id**（同第 0 节全局凭据里的那个）。
-  - 获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **客户端 ID**；或 `az identity show -g <rg> -n hello-app-mi --query clientId -o tsv`。
+- `<uami-client-id>`：UAMI 的 **client-id**（见第 0 节）。
 
 > 前提：UAMI 在 App Insights 资源上被授予「Monitoring Metrics Publisher」角色；LAW 数据平面授权由该 workspace-based 关联自动处理。
 
