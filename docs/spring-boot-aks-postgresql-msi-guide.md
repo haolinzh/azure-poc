@@ -304,3 +304,39 @@ String reply = r.getChoices().get(0).getMessage().getContent();
 ```
 
 > 前提：UAMI 在 Azure OpenAI 资源上被授予「Cognitive Services OpenAI User」角色；资源需部署至少一个模型。
+
+---
+
+## 8. 连通性验证
+
+前置：应用已部署到 AKS 且通过 LoadBalancer 暴露；`<public-ip>` = Service 的 EXTERNAL-IP。
+获取：`kubectl get svc hello-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}'`。
+
+| 组件 | 验证命令 | 预期 |
+|---|---|---|
+| Hello（基线） | `curl <public-ip>/hello` | `{"message":"Hello from AKS!"}` |
+| PostgreSQL 写入 | `curl -X POST <public-ip>/messages -H 'Content-Type: application/json' -d '{"content":"ping"}'` | 返回带 `id` 的记录 |
+| PostgreSQL 读回 | `curl <public-ip>/messages` | 列表含上面那条 |
+| Redis 写入 | `curl -X POST <public-ip>/redis -H 'Content-Type: application/json' -d '{"key":"k","value":"v"}'` | `{"key":"k","value":"v"}` |
+| Redis 读回 | `curl <public-ip>/redis/k` | `{"key":"k","value":"v"}` |
+| Event Hubs 发送 | `curl -X POST <public-ip>/eventhub/send -H 'Content-Type: application/json' -d '{"content":"ping"}'` | `{"status":"sent",...}` |
+| Storage 上传 | `curl -X POST <public-ip>/storage/upload -H 'Content-Type: application/json' -d '{"name":"a.txt","content":"hi"}'` | `{"blob":"a.txt",...}` |
+| Storage 列举 | `curl <public-ip>/storage/list` | 含 `a.txt` 的列表 |
+| Key Vault 读取 | `curl <public-ip>/keyvault/secret/<secret-name>` | `{"name":"...","value":"..."}` |
+| Azure OpenAI | `curl -X POST <public-ip>/chat -H 'Content-Type: application/json' -d '{"prompt":"hi"}'` | 需模型已部署，返回 `{"reply":"..."}` |
+
+`<secret-name>`：第 5 节里已创建的 secret 名。
+
+App Insights / LAW 不是 HTTP 端点，验证方式：触发上表任意请求后，查询 LAW 的 `AppRequests` 表能看到对应记录：
+
+```bash
+az monitor log-analytics query -w <law-workspace-id> \
+  --analytics-query "AppRequests | where TimeGenerated > ago(15m) | summarize count() by Name"
+```
+
+- `<law-workspace-id>`：LAW 的 **Workspace ID（Customer ID）**。
+  - 获取：Azure 门户 → Log Analytics 工作区 → 概览 → **工作区 ID**；或 `az monitor log-analytics workspace list --query '[].customerId' -o tsv`。
+
+### 最近一次验证结果（2026-09-17）
+
+Hello / PostgreSQL / Redis / Event Hubs / Storage Blob / Key Vault 全部 HTTP 200，且 App Insights 遥测正常流入 LAW。Azure OpenAI `/chat` 返回 404——代码在仓库已就绪，但模型部署被订阅监管限制挡住、尚未上线。
