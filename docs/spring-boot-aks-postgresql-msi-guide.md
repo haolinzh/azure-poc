@@ -239,3 +239,60 @@ env:
   - 获取：Azure 门户 → 托管标识 `hello-app-mi` → 概览 → **客户端 ID**；或 `az identity show -g <rg> -n hello-app-mi --query clientId -o tsv`。
 
 > 前提：UAMI 在 App Insights 资源上被授予「Monitoring Metrics Publisher」角色；LAW 数据平面授权由该 workspace-based 关联自动处理。
+
+---
+
+## 7. Azure OpenAI
+
+> ⚠️ **监管限制**：部署模型时若订阅注册地为**中国大陆**，会报 `CannotDeployDueToLocalRegulations`——仅企业客户（营业执照）经微软认证合作伙伴可订阅 Azure OpenAI，个人订阅无法部署模型。本节代码已就绪并可编译，但需**合规订阅**才能端到端验证。
+
+### 依赖（原生 SDK，非 spring-cloud-azure starter）
+
+```xml
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-ai-openai</artifactId>
+    <version>1.0.0-beta.16</version>
+</dependency>
+```
+
+### 配置
+
+```properties
+spring.cloud.azure.openai.endpoint=https://<resource-name>.openai.azure.com
+spring.cloud.azure.openai.deployment-name=<deployment-name>
+```
+
+- `<resource-name>`：Azure OpenAI 资源名（endpoint 的 FQDN 是 `<resource-name>.openai.azure.com`）。
+  - 获取：Azure 门户 → Azure OpenAI 资源 → 概览 → **终结点**（去掉 `https://` 前缀）；或 `az cognitiveservices account show -g <rg> -n openai-hello-poc --query properties.endpoint -o tsv`。
+- `<deployment-name>`：资源里已部署的**模型部署名**（不是模型名本身，是你部署时起的名字）。
+  - 获取：Azure 门户 → Azure OpenAI 资源 → **模型部署** 边栏 → 部署名称；或 `az cognitiveservices account deployment list -g <rg> -n openai-hello-poc --query '[].name' -o tsv`。
+
+### 代码
+
+手动用 `DefaultAzureCredential` 构造 `OpenAIClient`（认证链和前面组件一致：workload identity → token exchange → Entra token）：
+
+```java
+import com.azure.ai.openai.OpenAIClient;
+import com.azure.ai.openai.OpenAIClientBuilder;
+import com.azure.identity.DefaultAzureCredentialBuilder;
+
+@Bean
+public OpenAIClient openAIClient(@Value("${spring.cloud.azure.openai.endpoint}") String endpoint) {
+    return new OpenAIClientBuilder()
+            .endpoint(endpoint)
+            .credential(new DefaultAzureCredentialBuilder().build())
+            .buildClient();
+}
+```
+
+调用：
+
+```java
+ChatCompletions r = client.getChatCompletions(
+    deployment,
+    new ChatCompletionsOptions(List.of(new ChatRequestUserMessage(prompt))));
+String reply = r.getChoices().get(0).getMessage().getContent();
+```
+
+> 前提：UAMI 在 Azure OpenAI 资源上被授予「Cognitive Services OpenAI User」角色；资源需部署至少一个模型。
