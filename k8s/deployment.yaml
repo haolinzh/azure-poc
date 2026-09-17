@@ -22,6 +22,11 @@ spec:
         - name: hello-app
           image: acrhellopoc.azurecr.io/hello-app:latest
           imagePullPolicy: Always
+          env:
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              value: "InstrumentationKey=9c15e26f-6fa1-46ed-ac0d-9d7193db0568;IngestionEndpoint=https://eastasia-0.in.applicationinsights.azure.com/;LiveEndpoint=https://eastasia.livediagnostics.monitor.azure.com/;ApplicationId=5a856b76-143c-4b72-8bfd-8a6b590a3f72"
+            - name: APPLICATIONINSIGHTS_AUTHENTICATION_STRING
+              value: "Authorization=AAD;ClientId=7c7dbd38-b3a0-49c6-a55a-27a6237645cf"
           ports:
             - containerPort: 8080
           readinessProbe:

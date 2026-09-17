@@ -8,5 +8,6 @@ RUN mvn package -DskipTests -B
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
+ADD https://repo1.maven.org/maven2/com/microsoft/azure/applicationinsights-agent/3.7.9/applicationinsights-agent-3.7.9.jar /app/applicationinsights-agent.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-javaagent:/app/applicationinsights-agent.jar", "-jar", "app.jar"]
