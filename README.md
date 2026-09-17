@@ -11,6 +11,8 @@ curl http://localhost:8080/hello
 
 ## 部署到 AKS
 
+前置条件：已安装 Docker Desktop（脚本用 `buildx --platform linux/amd64` 交叉编译，适配 AKS 的 amd64 节点）。
+
 ```bash
 az login
 ./scripts/deploy-aks.sh
