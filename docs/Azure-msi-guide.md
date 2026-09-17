@@ -330,18 +330,18 @@ String reply = r.getChoices().get(0).getMessage().getContent();
 获取：`kubectl get svc hello-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}'`。
 参考值：`20.255.113.118`
 
-| 组件 | 验证命令 | 预期 |
-|---|---|---|
-| Hello（基线） | `curl <public-ip>/hello` | `{"message":"Hello from AKS!"}` |
-| PostgreSQL 写入 | `curl -X POST <public-ip>/messages -H 'Content-Type: application/json' -d '{"content":"ping"}'` | 返回带 `id` 的记录 |
-| PostgreSQL 读回 | `curl <public-ip>/messages` | 列表含上面那条 |
-| Redis 写入 | `curl -X POST <public-ip>/redis -H 'Content-Type: application/json' -d '{"key":"k","value":"v"}'` | `{"key":"k","value":"v"}` |
-| Redis 读回 | `curl <public-ip>/redis/k` | `{"key":"k","value":"v"}` |
-| Event Hubs 发送 | `curl -X POST <public-ip>/eventhub/send -H 'Content-Type: application/json' -d '{"content":"ping"}'` | `{"status":"sent",...}` |
-| Storage 上传 | `curl -X POST <public-ip>/storage/upload -H 'Content-Type: application/json' -d '{"name":"a.txt","content":"hi"}'` | `{"blob":"a.txt",...}` |
-| Storage 列举 | `curl <public-ip>/storage/list` | 含 `a.txt` 的列表 |
-| Key Vault 读取 | `curl <public-ip>/keyvault/secret/<secret-name>` | `{"name":"...","value":"..."}` |
-| Azure OpenAI | `curl -X POST <public-ip>/chat -H 'Content-Type: application/json' -d '{"prompt":"hi"}'` | 需模型已部署，返回 `{"reply":"..."}` |
+| 组件 | 验证命令 | 预期 | 结果 |
+|---|---|---|---|
+| Hello（基线） | `curl <public-ip>/hello` | `{"message":"Hello from AKS!"}` | HTTP 200 |
+| PostgreSQL 写入 | `curl -X POST <public-ip>/messages -H 'Content-Type: application/json' -d '{"content":"ping"}'` | 返回带 `id` 的记录 | HTTP 200 |
+| PostgreSQL 读回 | `curl <public-ip>/messages` | 列表含上面那条 | HTTP 200 |
+| Redis 写入 | `curl -X POST <public-ip>/redis -H 'Content-Type: application/json' -d '{"key":"k","value":"v"}'` | `{"key":"k","value":"v"}` | HTTP 200 |
+| Redis 读回 | `curl <public-ip>/redis/k` | `{"key":"k","value":"v"}` | HTTP 200 |
+| Event Hubs 发送 | `curl -X POST <public-ip>/eventhub/send -H 'Content-Type: application/json' -d '{"content":"ping"}'` | `{"status":"sent",...}` | HTTP 200 |
+| Storage 上传 | `curl -X POST <public-ip>/storage/upload -H 'Content-Type: application/json' -d '{"name":"a.txt","content":"hi"}'` | `{"blob":"a.txt",...}` | HTTP 200 |
+| Storage 列举 | `curl <public-ip>/storage/list` | 含 `a.txt` 的列表 | HTTP 200 |
+| Key Vault 读取 | `curl <public-ip>/keyvault/secret/<secret-name>` | `{"name":"...","value":"..."}` | HTTP 200 |
+| Azure OpenAI | `curl -X POST <public-ip>/chat -H 'Content-Type: application/json' -d '{"prompt":"hi"}'` | 需模型已部署，返回 `{"reply":"..."}` | 404（模型未部署，受监管限制） |
 
 `<secret-name>`：第 5 节里已创建的 secret 名（参考值 `demo-secret`）。
 
@@ -356,6 +356,4 @@ az monitor log-analytics query -w <law-workspace-id> \
   - 参考值：`1a7d2f82-bdde-4703-a2fb-02cc8a49ec0c`
   - 获取：Azure 门户 → Log Analytics 工作区 → 概览 → **工作区 ID**；或 `az monitor log-analytics workspace list --query '[].customerId' -o tsv`。
 
-### 最近一次验证结果（2026-09-17）
-
-Hello / PostgreSQL / Redis / Event Hubs / Storage Blob / Key Vault 全部 HTTP 200，且 App Insights 遥测正常流入 LAW。Azure OpenAI `/chat` 返回 404——代码在仓库已就绪，但模型部署被订阅监管限制挡住、尚未上线。
+参考结果：`AppRequests` 有记录（遥测正常流入 LAW）。
